@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String            @id @default(uuid())
+  email            String            @unique
+  password         String
+  name             String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  metaIntegrations MetaIntegration[]
+}
+
+model MetaIntegration {
+  id              String         @id @default(uuid())
+  userId          String
+  pageId          String         @unique
+  pageAccessToken String
+  wabaId          String?        // WhatsApp Business Account ID
+  businessName    String?        // Human-friendly name for the integration
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  conversations   Conversation[]
+  customers       Customer[]
+  user            User           @relation(fields: [userId], references: [id])
+}
+
+model Customer {
+  id                 String          @id @default(uuid())
+  metaIntegrationId  String
+  platformCustomerId String
+  name               String?
+  preferences        String?
+  notes              String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  conversations      Conversation[]
+  metaIntegration    MetaIntegration @relation(fields: [metaIntegrationId], references: [id])
+  notifications      Notification[]
+  orders             Order[]
+
+  @@unique([metaIntegrationId, platformCustomerId])
+}
+
+model Conversation {
+  id                String          @id @default(uuid())
+  metaIntegrationId String
+  customerId        String?
+  platform          Platform
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  customer          Customer?       @relation(fields: [customerId], references: [id])
+  metaIntegration   MetaIntegration @relation(fields: [metaIntegrationId], references: [id])
+  messages          Message[]
+
+  @@unique([metaIntegrationId, customerId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  sender         Sender
+  content        String
+  tokensUsed     Int?         @default(0)
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId])
+}
+
+model Product {
+  id          String      @id @default(uuid())
+  name        String
+  price       Float?
+  colors      String[]
+  sizes       String[]
+  imageUrls   String[]
+  description String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  orderItems  OrderItem[]
+
+  @@index([name])
+  @@index([price])
+}
+
+model StoreConfig {
+  id              String   @id @default(uuid())
+  storeName       String   @default("Frooxi")
+  currency        String   @default("BDT")
+  businessDetails String?
+  updatedAt       DateTime @updatedAt
+}
+
+model StoreRule {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  category  String   @default("GENERAL")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ShippingZone {
+  id        String   @id @default(uuid())
+  name      String
+  division  String?
+  district  String?
+  thana     String?
+  price     Float
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id                    String      @id @default(uuid())
+  customerId            String
+  customerName          String
+  customerPhone         String
+  customerEmail         String?
+  deliveryAddress       String
+  totalAmount           Float
+  deliveryFee           Float
+  status                OrderStatus @default(PENDING)
+  abandonedFollowUpSent Boolean     @default(false)
+  feedbackRequested     Boolean     @default(false)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  customer              Customer    @relation(fields: [customerId], references: [id])
+  items                 OrderItem[]
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String
+  productId   String
+  productName String
+  size        String?
+  color       String?
+  quantity    Int     @default(1)
+  price       Float
+  order       Order   @relation(fields: [orderId], references: [id])
+  product     Product @relation(fields: [productId], references: [id])
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  type       String   @default("HANDOFF")
+  message    String
+  customerId String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  customer   Customer @relation(fields: [customerId], references: [id])
+}
+
+model Faq {
+  id               String   @id @default(uuid())
+  category         String
+  question         String
+  answer           String
+  keywords         String[]
+  isActive         Boolean  @default(true)
+  priority         Int      @default(0)
+  responseTemplate String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model AiAgent {
+  id                 String   @id @default(uuid())
+  name               String   @unique
+  isActive           Boolean  @default(true)
+  prompt             String?
+  instructionPrompt  String?
+  model              String   @default("gemini-1.5-flash")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  unavailableMessage String?
+
+  @@map("ai_agents")
+}
+
+model SystemSettings {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  category  String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model Currency {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  symbol       String
+  exchangeRate Float
+  isActive     Boolean  @default(true)
+  isDefault    Boolean  @default(false)
+  priority     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("currencies")
+}
+
+enum Platform {
+  MESSENGER
+  INSTAGRAM
+  WHATSAPP
+}
+
+enum Sender {
+  USER
+  AGENT
+}
+
+enum OrderStatus {
+  PLACED
+  PENDING
+  CONFIRMED
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}

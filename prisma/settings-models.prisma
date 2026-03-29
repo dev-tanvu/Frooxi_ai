@@ -1,0 +1,39 @@
+model SystemSettings {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   // JSON string for complex values
+  category  String   // data-retention, spam-protection, delivery, currency, etc.
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("system_settings")
+}
+
+model DeliveryZone {
+  id        String   @id @default(uuid())
+  name      String   // "Inside Dhaka", "Outside Dhaka"
+  price     Float    // 70.00, 130.00
+  currency  String   @default("BDT")
+  isActive  Boolean  @default(true)
+  priority  Int      @default(0) // For ordering
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("delivery_zones")
+}
+
+model Currency {
+  id          String   @id @default(uuid())
+  code        String   @unique // "USD", "EUR", "BDT"
+  name        String   // "US Dollar", "Euro", "Bangladeshi Taka"
+  symbol      String   // "$", "€", "৳"
+  exchangeRate Float   // Rate relative to base currency (BDT)
+  isActive    Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  priority    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("currencies")
+}

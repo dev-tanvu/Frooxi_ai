@@ -1,0 +1,28 @@
+model AiAgent {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   // sales, support, info, etc.
+  isActive  Boolean  @default(true)
+  priority  Int      @default(0)
+  
+  // AI Prompts
+  systemPrompt              String?
+  personalityPrompt         String?
+  salespersonInstructionPrompt String?
+  escalationPrompt          String?
+  
+  // AI Settings
+  temperature        Float    @default(0.7)
+  maxTokens         Int      @default(1000)
+  model             String   @default("gemini-1.5-flash")
+  
+  // Usage Stats
+  totalConversations Int      @default(0)
+  totalMessages      Int      @default(0)
+  lastUsed           DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("ai_agents")
+}
