@@ -7,6 +7,11 @@ export interface EmotionState {
     urgency: 'Low' | 'Medium' | 'High';
     style: 'Short' | 'Detailed' | 'Casual' | 'Formal';
     search_queries?: string[];
+    product_interest?: 'NONE' | 'DISCUSSING' | 'CONFIRMED' | 'REMOVING' | 'CLEAR_ALL';
+    quantity?: number;
+    quantity_operation?: 'INCREMENT' | 'SET';
+    size?: string;
+    color?: string;
 }
 export declare class GeminiService {
     private configService;
@@ -19,17 +24,7 @@ export declare class GeminiService {
     private defaultModelName;
     private defaultEmbeddingModelName;
     constructor(configService: ConfigService, storeService: StoreService, aiAgentService: AiAgentService);
-    private getTextModel;
-    private getEmbeddingModel;
-    analyzeEmotionAndIntent(prompt: string, history?: string[], modelName?: string): Promise<EmotionState>;
-    extractBehavioralProfile(history: string[], currentProfile?: string, modelName?: string): Promise<string>;
-    generateSalesResponse(prompt: string, products: any[], history?: string[], customerMemory?: string, isOrdering?: boolean, emotionState?: EmotionState | null, modelName?: string): Promise<string>;
-    generateOrderResponse(prompt: string, products: any[], history?: string[], customerMemory?: string, modelName?: string): Promise<string>;
-    analyzeImage(imageBuffer: Buffer, mimeType: string, prompt: string): Promise<string>;
-    generateEmbedding(text: string, modelName?: string): Promise<number[]>;
-    generateMultimodalEmbedding(text: string, imageBuffer: Buffer, mimeType: string, modelName?: string): Promise<number[]>;
-    processAudioMessage(audioBuffer: Buffer, mimeType: string, products: any[], history?: string[], customerMemory?: string, modelName?: string): Promise<{
-        transcription: string;
-        response: string;
-    }>;
+    getTextModel(modelName?: string, tools?: any[]): import("@google/generative-ai").GenerativeModel;
+    getEmbeddingModel(modelName?: string): import("@google/generative-ai").GenerativeModel;
+    getDefaultModel(): any;
 }

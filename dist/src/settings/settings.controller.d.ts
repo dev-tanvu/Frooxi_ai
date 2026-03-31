@@ -12,10 +12,10 @@ export declare class SettingsController {
             name: string;
             active: boolean;
             createdAt: Date;
-            price: number;
             division: string | null;
             district: string | null;
             thana: string | null;
+            price: number;
         }[];
         currencies: {
             symbol: string;
@@ -48,10 +48,10 @@ export declare class SettingsController {
         name: string;
         active: boolean;
         createdAt: Date;
-        price: number;
         division: string | null;
         district: string | null;
         thana: string | null;
+        price: number;
     }[]>;
     getDeliveryPrice(zone: string): Promise<{
         price: number;

@@ -1,0 +1,2 @@
+ALTER TABLE "MetaIntegration" ADD COLUMN IF NOT EXISTS "wabaId" TEXT;
+ALTER TABLE "MetaIntegration" ADD COLUMN IF NOT EXISTS "businessName" TEXT;

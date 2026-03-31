@@ -21,6 +21,8 @@ export declare class AiAgentService implements OnModuleInit {
     private readonly logger;
     private systemMessagesCache;
     private systemMessagesCacheExpiry;
+    private agentCache;
+    private readonly AGENT_CACHE_TTL;
     constructor(prisma: PrismaService, configService: ConfigService);
     onModuleInit(): Promise<void>;
     createAgent(createAgentDto: CreateAiAgentDto): Promise<any>;

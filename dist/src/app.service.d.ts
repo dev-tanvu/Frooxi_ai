@@ -1,13 +1,17 @@
+import { OnModuleInit } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import { MetaWebhookService } from './meta-webhook/meta-webhook.service';
 import { MetaApiService } from './meta-webhook/meta-api.service';
 import { EncryptionService } from './common/encryption.service';
-export declare class AppService {
+export declare class AppService implements OnModuleInit {
     private prisma;
     private metaWebhook;
     private metaApi;
     private encryption;
+    private readonly logger;
     constructor(prisma: PrismaService, metaWebhook: MetaWebhookService, metaApi: MetaApiService, encryption: EncryptionService);
+    onModuleInit(): Promise<void>;
+    private seedMetaIntegration;
     getHello(): string;
     getStats(): Promise<{
         totalProducts: number;
@@ -24,8 +28,8 @@ export declare class AppService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            customerId: string | null;
             metaIntegrationId: string;
+            customerId: string | null;
             platform: import(".prisma/client").$Enums.Platform;
         };
     } & {
@@ -38,30 +42,32 @@ export declare class AppService {
     })[]>;
     getNotifications(): Promise<({
         customer: {
+            name: string | null;
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string | null;
             metaIntegrationId: string;
             platformCustomerId: string;
             preferences: string | null;
             notes: string | null;
+            lastReadAt: Date | null;
+            isOptedOut: boolean;
         };
     } & {
+        message: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         customerId: string;
-        message: string;
         type: string;
         read: boolean;
     })[]>;
     markNotificationRead(id: string): Promise<{
+        message: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         customerId: string;
-        message: string;
         type: string;
         read: boolean;
     }>;

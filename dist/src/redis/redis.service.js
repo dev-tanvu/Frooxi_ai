@@ -52,9 +52,12 @@ let RedisService = RedisService_1 = class RedisService {
     async addMessage(customerId, sender, content, ttl = 3600) {
         const key = `conv:${customerId}`;
         const message = JSON.stringify({ sender, content, timestamp: Date.now() });
-        await this.redisClient.lpush(key, message);
-        await this.redisClient.ltrim(key, 0, 19);
-        await this.redisClient.expire(key, ttl);
+        await this.redisClient
+            .pipeline()
+            .lpush(key, message)
+            .ltrim(key, 0, 19)
+            .expire(key, ttl)
+            .exec();
     }
     async incrementMessageCount(customerId) {
         const key = `msg_count:${customerId}`;
@@ -76,19 +79,86 @@ let RedisService = RedisService_1 = class RedisService {
         const key = `conv:${customerId}`;
         await this.redisClient.del(key);
     }
+    async setNX(key, value, ttlSeconds) {
+        const result = await this.redisClient.set(key, value, 'EX', ttlSeconds, 'NX');
+        return result === 'OK';
+    }
+    pipeline() {
+        return this.redisClient.pipeline();
+    }
+    async zadd(key, score, member) {
+        await this.redisClient.zadd(key, score, member);
+    }
+    async zcard(key) {
+        return this.redisClient.zcard(key);
+    }
+    async zremrangebyscore(key, min, max) {
+        await this.redisClient.zremrangebyscore(key, min, max);
+    }
     async get(key) {
         return this.redisClient.get(key);
     }
     async set(key, value, ttlSeconds) {
         if (ttlSeconds) {
-            await this.redisClient.setex(key, ttlSeconds, value);
+            await this.redisClient.setex(key, ttlSeconds, value.toString());
         }
         else {
-            await this.redisClient.set(key, value);
+            await this.redisClient.set(key, value.toString());
         }
     }
     async del(key) {
         await this.redisClient.del(key);
+    }
+    async incr(key) {
+        return this.redisClient.incr(key);
+    }
+    async decr(key) {
+        return this.redisClient.decr(key);
+    }
+    async rpush(key, value) {
+        await this.redisClient.rpush(key, value);
+    }
+    async lpop(key) {
+        return this.redisClient.lpop(key);
+    }
+    async llen(key) {
+        return this.redisClient.llen(key);
+    }
+    async expire(key, seconds) {
+        await this.redisClient.expire(key, seconds);
+    }
+    async lrange(key, start, stop) {
+        return this.redisClient.lrange(key, start, stop);
+    }
+    async getTtl(key) {
+        return this.redisClient.ttl(key);
+    }
+    async sAdd(key, value) {
+        await this.redisClient.sadd(key, value);
+    }
+    async sIsMember(key, value) {
+        return (await this.redisClient.sismember(key, value)) === 1;
+    }
+    async sRem(key, value) {
+        await this.redisClient.srem(key, value);
+    }
+    async pushToBuffer(senderId, messageData) {
+        const key = `burst:${senderId}`;
+        await this.redisClient
+            .pipeline()
+            .rpush(key, JSON.stringify(messageData))
+            .expire(key, 60)
+            .exec();
+    }
+    async drainBuffer(senderId) {
+        const key = `burst:${senderId}`;
+        const luaScript = `
+            local items = redis.call('LRANGE', KEYS[1], 0, -1)
+            redis.call('DEL', KEYS[1])
+            return items
+        `;
+        const results = await this.redisClient.eval(luaScript, 1, key);
+        return (results || []).map(item => JSON.parse(item));
     }
 };
 exports.RedisService = RedisService;

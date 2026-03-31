@@ -20,6 +20,8 @@ export declare class CustomerController {
         platformCustomerId: string;
         preferences: string | null;
         notes: string | null;
+        lastReadAt: Date | null;
+        isOptedOut: boolean;
     })[]>;
     findOne(id: string): Promise<({
         conversations: ({
@@ -35,8 +37,8 @@ export declare class CustomerController {
             id: string;
             updatedAt: Date;
             createdAt: Date;
-            customerId: string | null;
             metaIntegrationId: string;
+            customerId: string | null;
             platform: import(".prisma/client").$Enums.Platform;
         })[];
     } & {
@@ -48,6 +50,8 @@ export declare class CustomerController {
         platformCustomerId: string;
         preferences: string | null;
         notes: string | null;
+        lastReadAt: Date | null;
+        isOptedOut: boolean;
     }) | null>;
     update(id: string, data: any): Promise<{
         id: string;
@@ -58,5 +62,7 @@ export declare class CustomerController {
         platformCustomerId: string;
         preferences: string | null;
         notes: string | null;
+        lastReadAt: Date | null;
+        isOptedOut: boolean;
     }>;
 }

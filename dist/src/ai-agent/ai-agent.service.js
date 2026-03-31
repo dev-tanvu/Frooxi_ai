@@ -20,6 +20,8 @@ let AiAgentService = AiAgentService_1 = class AiAgentService {
     logger = new common_1.Logger(AiAgentService_1.name);
     systemMessagesCache = null;
     systemMessagesCacheExpiry = 0;
+    agentCache = new Map();
+    AGENT_CACHE_TTL = 5 * 60 * 1000;
     constructor(prisma, configService) {
         this.prisma = prisma;
         this.configService = configService;
@@ -74,12 +76,14 @@ let AiAgentService = AiAgentService_1 = class AiAgentService {
                 ...updateAgentDto,
             }
         });
+        this.agentCache.clear();
         this.logger.log(`✅ AI Agent updated: ${updated.name}`);
         return updated;
     }
     async deleteAgent(id) {
         this.logger.log(`Deleting AI agent: ${id}`);
         await this.prisma.aiAgent.delete({ where: { id } });
+        this.agentCache.clear();
     }
     async toggleAgentStatus(id) {
         const agent = await this.prisma.aiAgent.findUnique({ where: { id } });
@@ -90,6 +94,7 @@ let AiAgentService = AiAgentService_1 = class AiAgentService {
             where: { id },
             data: { isActive: !agent.isActive },
         });
+        this.agentCache.clear();
         this.logger.log(`✅ Toggled agent ${updated.name} to isActive=${updated.isActive}`);
         return updated;
     }
@@ -98,6 +103,7 @@ let AiAgentService = AiAgentService_1 = class AiAgentService {
             where: { id },
             data: { isActive },
         });
+        this.agentCache.clear();
         this.logger.log(`✅ Updated agent ${updated.name} isActive=${updated.isActive}`);
         return updated;
     }
@@ -115,10 +121,15 @@ let AiAgentService = AiAgentService_1 = class AiAgentService {
         });
     }
     async getActiveAgentByName(name) {
-        return await this.prisma.aiAgent.findFirst({
+        const cached = this.agentCache.get(name);
+        if (cached && Date.now() < cached.expiry)
+            return cached.data;
+        const agent = await this.prisma.aiAgent.findFirst({
             where: { name, isActive: true },
             orderBy: [{ updatedAt: 'desc' }],
         });
+        this.agentCache.set(name, { data: agent, expiry: Date.now() + this.AGENT_CACHE_TTL });
+        return agent;
     }
     async initializeDefaultAgents() {
         this.logger.log('🤖 Initializing default AI agents...');
@@ -187,48 +198,21 @@ STRATEGY:
             {
                 name: 'Order Agent',
                 model: llmModel,
-                prompt: `You are the "Order Collection Specialist" for Frooxi. Your ONLY job is to collect the customer's order details and finalize their purchase.
-You are given the PRODUCT the customer wants to buy in the context. Do NOT suggest other products.
-
+                prompt: `You are the "Order Collection Specialist" for Frooxi. Your ONLY job is to collect customer details and finalize purchases (Orders).
 STRATEGY:
-1. ACKNOWLEDGE: Start by confirming which product the customer wants. Example: "Great choice! Let's get your order for the [Product Name] set up."
-2. CHECK HISTORY: Look at the conversation history. The customer may have ALREADY provided some details (like size, color). Do NOT ask for details they already gave. Acknowledge what you already know.
-3. COLLECT MISSING DETAILS: Ask for ONLY the details that are still missing. The required details are:
-   - Full Name
-   - Phone Number
-   - Email (optional but ask once)
-   - Full Delivery Address (with Thana/District)
-   - Product Size (if not already specified)
-   - Product Color (if not already specified)
-   - Quantity (default 1 if not specified)
-4. BE EFFICIENT: If the user provides multiple details in one message, acknowledge ALL of them. Never ask for something they just told you.
-5. FINALIZE: Once you have ALL details, confirm the order summary and include the [ORDER_READY] tag.
-
-RULES:
-- CURRENCY: Always BDT.
-- FORMAT: Plain text only (no markdown, no bold, no italics).
-- Mention: "Inside Dhaka delivery 70 BDT, Outside Dhaka 130 BDT".
-- NEVER suggest or mention other products. You are here to close THIS order only.`,
+1. PERSISTENCE: Use the "update_order_draft" tool EVERY TIME the user provides info (name, phone, address, product).
+2. EDITING: If the user says "Change my size" or "Wait, I gave the wrong phone" AFTER they have confirmed an order, do NOT start a new order. Instead, use the "edit_placed_order" tool to modify the existing record.
+3. NO HALLUCINATION: Only use IDs from AVAILABLE_PRODUCTS_DATA.
+4. SUMMARY: Always provide a full summary before calling "place_order".
+5. FINALIZATION: Call "place_order" ONLY when the user says "yes/confirm".`,
                 instructionPrompt: `[ORDER AGENT INSTRUCTION]
-1. You are the ORDER COLLECTION agent. Your sole purpose is to collect order details efficiently.
-2. [CRITICAL] USE ONLY PLAIN TEXT. NO BOLD, NO ITALICS, NO HEADERS.
-3. [CRITICAL - HISTORY AWARENESS]: Before asking ANY question, CHECK the conversation history. If the user already said "size S" or "my name is X", DO NOT ask again. Acknowledge it and move to the NEXT missing field.
-4. [ORDER_READY TAG]: When ALL order details are collected (name, phone, address, size, color, quantity), you MUST append exactly one [ORDER_READY: {...}] tag at the END of your message. This tag is INVISIBLE to the user and is used by the system to create the order.
-   Use this EXACT format:
-   [ORDER_READY: {
-     "customerName": "N", "phone": "P", "email": "E",
-     "deliveries": [
-       {
-         "location": "Full Address (Thana/District)",
-         "items": [ {"productId": "actual_product_id_from_AVAILABLE_PRODUCTS_DATA", "size": "S", "color": "C", "quantity": 1} ]
-       }
-     ]
-   }]
-   CRITICAL: The "productId" MUST be the exact "id" field from AVAILABLE_PRODUCTS_DATA. Do NOT use placeholder IDs.
-5. [ORDER_UPDATE TAG]: If user wants to edit an existing order, use [ORDER_UPDATE: {...}] with the same JSON schema.
-6. After including the [ORDER_READY] tag, confirm: "Your order has been placed successfully! Here are your details: [Product Name], [Size], [Color], [Quantity]. Our support team will call you shortly to confirm."
-7. If the user changes their mind and wants info instead, say "No problem! Let me connect you back to our info team." The system will re-route them.`,
-                unavailableMessage: "Our ordering system is currently being updated. Please try again in a few minutes, or our admin team will assist you shortly! 🙏"
+1. You have tools: "update_order_draft", "place_order", and "edit_placed_order".
+2. Use "update_order_draft" for the current session draft.
+3. Use "place_order" only after final confirmation.
+4. Use "edit_placed_order" if the user changes their mind about details (Size, Color, Name, Address, Phone) AFTER the order was placed.
+5. [CRITICAL]: If a user changes their mind about a detail AFTER confirmation, use edit_placed_order. Do NOT ask them for all details again.
+6. If things are too complex or the user asks general questions, use [INTERNAL_HANDOFF].`,
+                unavailableMessage: "Our ordering system is currently being updated. Please try again in a few minutes! 🙏"
             },
             {
                 name: 'Behaviour Agent',

@@ -11,7 +11,25 @@ export declare class RedisService implements OnModuleInit, OnModuleDestroy {
     incrementMessageCount(customerId: string): Promise<number>;
     getHistory(customerId: string, limit?: number): Promise<string[]>;
     clearHistory(customerId: string): Promise<void>;
+    setNX(key: string, value: string, ttlSeconds: number): Promise<boolean>;
+    pipeline(): import("ioredis").ChainableCommander;
+    zadd(key: string, score: number, member: string): Promise<void>;
+    zcard(key: string): Promise<number>;
+    zremrangebyscore(key: string, min: string | number, max: string | number): Promise<void>;
     get(key: string): Promise<string | null>;
-    set(key: string, value: string, ttlSeconds?: number): Promise<void>;
+    set(key: string, value: string | number, ttlSeconds?: number): Promise<void>;
     del(key: string): Promise<void>;
+    incr(key: string): Promise<number>;
+    decr(key: string): Promise<number>;
+    rpush(key: string, value: string): Promise<void>;
+    lpop(key: string): Promise<string | null>;
+    llen(key: string): Promise<number>;
+    expire(key: string, seconds: number): Promise<void>;
+    lrange(key: string, start: number, stop: number): Promise<string[]>;
+    getTtl(key: string): Promise<number>;
+    sAdd(key: string, value: string): Promise<void>;
+    sIsMember(key: string, value: string): Promise<boolean>;
+    sRem(key: string, value: string): Promise<void>;
+    pushToBuffer(senderId: string, messageData: any): Promise<void>;
+    drainBuffer(senderId: string): Promise<any[]>;
 }

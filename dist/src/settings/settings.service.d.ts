@@ -56,10 +56,10 @@ export declare class SettingsService {
         name: string;
         active: boolean;
         createdAt: Date;
-        price: number;
         division: string | null;
         district: string | null;
         thana: string | null;
+        price: number;
     }[]>;
     getDeliveryPriceByZone(zoneName: string): Promise<{
         price: number;

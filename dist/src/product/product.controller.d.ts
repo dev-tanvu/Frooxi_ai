@@ -11,10 +11,10 @@ export declare class ProductController {
         count: number;
     }>;
     findAll(): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -23,10 +23,10 @@ export declare class ProductController {
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
     }[]>;
     findOne(id: string): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -35,10 +35,10 @@ export declare class ProductController {
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
     } | null>;
     create(data: any): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -47,10 +47,10 @@ export declare class ProductController {
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     update(id: string, data: any): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -59,10 +59,10 @@ export declare class ProductController {
         metadata: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     remove(id: string): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];

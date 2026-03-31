@@ -24,9 +24,11 @@ export class MetaApiService {
         };
         try {
             this.logger.log(`📤 Sending message to ${recipientId}: "${text.substring(0, 50)}..."`);
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
 
-            const response = await lastValueFrom(this.httpService.post(url, payload));
+            const response = await lastValueFrom(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
             this.logger.log(`✅ Message sent successfully.`);
             return response.data;
         } catch (error) {
@@ -54,12 +56,14 @@ export class MetaApiService {
 
     async markSeen(pageId: string, recipientId: string, pageAccessToken: string) {
         try {
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
             const payload = {
                 recipient: { id: recipientId },
                 sender_action: 'mark_seen',
             };
-            await lastValueFrom(this.httpService.post(url, payload));
+            await lastValueFrom(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
         } catch (error) {
             this.logger.error(`Error marking as seen: ${error.message}`);
         }
@@ -67,12 +71,14 @@ export class MetaApiService {
 
     async typingOn(pageId: string, recipientId: string, pageAccessToken: string) {
         try {
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
             const payload = {
                 recipient: { id: recipientId },
                 sender_action: 'typing_on',
             };
-            await lastValueFrom(this.httpService.post(url, payload));
+            await lastValueFrom(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
         } catch (error) {
             this.logger.error(`Error starting typing: ${error.message}`);
         }
@@ -80,12 +86,14 @@ export class MetaApiService {
 
     async typingOff(pageId: string, recipientId: string, pageAccessToken: string) {
         try {
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
             const payload = {
                 recipient: { id: recipientId },
                 sender_action: 'typing_off',
             };
-            await lastValueFrom(this.httpService.post(url, payload));
+            await lastValueFrom(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
         } catch (error) {
             this.logger.error(`Error stopping typing: ${error.message}`);
         }
@@ -107,9 +115,11 @@ export class MetaApiService {
         };
         try {
             this.logger.log(`📤 Sending image to ${recipientId}: ${imageUrl}`);
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
 
-            const response = await lastValueFrom(this.httpService.post(url, payload));
+            const response = await lastValueFrom(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
             this.logger.log(`✅ Image sent successfully.`);
             this.logToFile(`SUCCESS: Image sent to ${recipientId}. URL: ${imageUrl}`);
             return response.data;
@@ -123,38 +133,66 @@ export class MetaApiService {
     async sendBatchImages(pageId: string, recipientId: string, imageUrls: string[], pageAccessToken: string) {
         if (!imageUrls || imageUrls.length === 0) return;
 
-        // Note: While Meta Send API docs often show singular 'attachment', 
-        // using 'attachments' array as requested by user based on webhook observations.
+        // If only 1 image, use the standard singular attachment format
+        if (imageUrls.length === 1) {
+            return this.sendImage(pageId, recipientId, imageUrls[0], pageAccessToken);
+        }
+
+        // For multiple images, use a Generic Template (Carousel)
+        // This is the official and most premium way to send a gallery
         const payload = {
             recipient: { id: recipientId },
             messaging_type: 'RESPONSE',
             message: {
-                attachments: imageUrls.map(url => ({
-                    type: 'image',
+                attachment: {
+                    type: 'template',
                     payload: {
-                        url: url,
-                        is_reusable: true
+                        template_type: 'generic',
+                        elements: imageUrls.slice(0, 10).map((url, index) => ({
+                            title: `Product Image ${index + 1}`,
+                            image_url: url,
+                            subtitle: 'Explore our collection',
+                            default_action: {
+                                type: "web_url",
+                                url: "https://frooxi.com",
+                                webview_height_ratio: "tall",
+                            },
+                            buttons: [
+                                {
+                                    type: "web_url",
+                                    url: "https://frooxi.com",
+                                    title: "View on Store"
+                                },
+                                {
+                                    type: "web_url",
+                                    url: url,
+                                    title: "View Full Image"
+                                }
+                            ]
+                        }))
                     }
-                }))
+                }
             }
         };
 
         try {
-            this.logger.log(`📤 Sending ${imageUrls.length} images in batch to ${recipientId}`);
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            this.logger.log(`📤 Sending ${imageUrls.length} images in a Carousel to ${recipientId}`);
+            const url = `${this.baseUrl}/${pageId}/messages`;
 
-            const response = await lastValueFrom(this.httpService.post(url, payload));
-            this.logger.log(`✅ Batch images sent successfully.`);
-            this.logToFile(`SUCCESS: Batch images sent to ${recipientId}. Count: ${imageUrls.length}`);
+            const response = await lastValueFrom(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
+            this.logger.log(`✅ Carousel images sent successfully.`);
             return response.data;
         } catch (error) {
             const errorMsg = error.response?.data?.error?.message || error.message;
-            this.logger.error(`❌ Error sending batch images to Meta: ${errorMsg}`);
-            this.logToFile(`ERROR: Batch images to ${recipientId} failed. Error: ${errorMsg}`);
+            this.logger.error(`❌ Error sending Carousel images: ${errorMsg}`);
             
-            // Fallback: If Meta rejects the batch format, we could theoretically fallback to sequential,
-            // but for now we follow user's instruction to use this structure.
-            throw error;
+            // Fallback: Send sequentially if the template fails (e.g. invalid URL formats)
+            this.logger.warn(`⚠️ Carousel failed, falling back to sequential sending...`);
+            for (const url of imageUrls) {
+                await this.sendImage(pageId, recipientId, url, pageAccessToken).catch(() => {});
+            }
         }
     }
 

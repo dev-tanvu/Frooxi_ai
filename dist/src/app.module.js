@@ -31,6 +31,8 @@ const debug_module_1 = require("./debug/debug.module");
 const ai_agent_module_1 = require("./ai-agent/ai-agent.module");
 const settings_module_1 = require("./settings/settings.module");
 const common_module_1 = require("./common/common.module");
+const cart_module_1 = require("./cart/cart.module");
+const queue_module_1 = require("./queue/queue.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -44,6 +46,7 @@ exports.AppModule = AppModule = __decorate([
                     limit: 30,
                 }]),
             prisma_module_1.PrismaModule,
+            queue_module_1.QueueModule,
             meta_webhook_module_1.MetaWebhookModule,
             ai_module_1.AiModule,
             redis_module_1.RedisModule,
@@ -59,7 +62,8 @@ exports.AppModule = AppModule = __decorate([
             debug_module_1.DebugModule,
             ai_agent_module_1.AiAgentModule,
             settings_module_1.SettingsModule,
-            common_module_1.CommonModule
+            common_module_1.CommonModule,
+            cart_module_1.CartModule
         ],
         controllers: [app_controller_1.AppController],
         providers: [

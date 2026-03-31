@@ -44,6 +44,9 @@ model Customer {
   metaIntegration    MetaIntegration @relation(fields: [metaIntegrationId], references: [id])
   notifications      Notification[]
   orders             Order[]
+  cart               Cart?
+  lastReadAt         DateTime?
+  isOptedOut         Boolean         @default(false)
 
   @@unique([metaIntegrationId, platformCustomerId])
 }
@@ -86,6 +89,7 @@ model Product {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   orderItems  OrderItem[]
+  cartItems   CartItem[]
 
   @@index([name])
   @@index([price])
@@ -137,6 +141,32 @@ model Order {
   updatedAt             DateTime    @updatedAt
   customer              Customer    @relation(fields: [customerId], references: [id])
   items                 OrderItem[]
+}
+
+model Cart {
+  id         String     @id @default(uuid())
+  customerId String     @unique
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  items      CartItem[]
+}
+
+model CartItem {
+  id          String   @id @default(uuid())
+  cartId      String
+  productId   String
+  productName String
+  size        String?
+  color       String?
+  quantity    Int      @default(1)
+  price         Float?
+  addedAt       DateTime @default(now())
+  followUpCount Int      @default(0)
+  cart           Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@index([cartId])
 }
 
 model OrderItem {

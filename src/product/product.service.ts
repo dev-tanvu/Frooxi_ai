@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { GeminiService } from '../ai/gemini.service';
+import { GeminiMultimodalService } from '../ai/gemini-multimodal.service';
 import { PineconeService } from '../ai/pinecone.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -12,6 +13,7 @@ export class ProductService {
     constructor(
         private prisma: PrismaService,
         private gemini: GeminiService,
+        private geminiMultimodal: GeminiMultimodalService,
         private pinecone: PineconeService,
         private redis: RedisService,
     ) {}
@@ -126,7 +128,7 @@ export class ProductService {
 
             this.logger.log(`🔍 No keyword matches for "${query}". Triggering semantic fallback...`);
             try {
-                const embedding = await this.gemini.generateEmbedding(query);
+                const embedding = await this.geminiMultimodal.generateEmbedding(query);
                 const vectorMatches = await this.pinecone.query(embedding, limit);
                 
                 results = vectorMatches.map(m => {
@@ -234,7 +236,7 @@ export class ProductService {
         try {
             this.logger.log(`🔗 Syncing product ${product.id} to Pinecone...`);
             const textToEmbed = `${product.name} ${product.description} ${product.colors.join(' ')} ${product.sizes.join(' ')}`;
-            const embedding = await this.gemini.generateEmbedding(textToEmbed);
+            const embedding = await this.geminiMultimodal.generateEmbedding(textToEmbed);
             
             if (!embedding || embedding.length === 0) {
                 this.logger.warn(`⚠️ Empty embedding for product ${product.id}. Skipping Pinecone sync.`);

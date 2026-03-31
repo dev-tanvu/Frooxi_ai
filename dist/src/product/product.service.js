@@ -14,17 +14,20 @@ exports.ProductService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const gemini_service_1 = require("../ai/gemini.service");
+const gemini_multimodal_service_1 = require("../ai/gemini-multimodal.service");
 const pinecone_service_1 = require("../ai/pinecone.service");
 const redis_service_1 = require("../redis/redis.service");
 let ProductService = ProductService_1 = class ProductService {
     prisma;
     gemini;
+    geminiMultimodal;
     pinecone;
     redis;
     logger = new common_1.Logger(ProductService_1.name);
-    constructor(prisma, gemini, pinecone, redis) {
+    constructor(prisma, gemini, geminiMultimodal, pinecone, redis) {
         this.prisma = prisma;
         this.gemini = gemini;
+        this.geminiMultimodal = geminiMultimodal;
         this.pinecone = pinecone;
         this.redis = redis;
     }
@@ -122,7 +125,7 @@ let ProductService = ProductService_1 = class ProductService {
             }
             this.logger.log(`🔍 No keyword matches for "${query}". Triggering semantic fallback...`);
             try {
-                const embedding = await this.gemini.generateEmbedding(query);
+                const embedding = await this.geminiMultimodal.generateEmbedding(query);
                 const vectorMatches = await this.pinecone.query(embedding, limit);
                 results = vectorMatches.map(m => {
                     const { name, price, imageUrls, colors, sizes, description, ...rest } = m.metadata;
@@ -216,7 +219,7 @@ let ProductService = ProductService_1 = class ProductService {
         try {
             this.logger.log(`🔗 Syncing product ${product.id} to Pinecone...`);
             const textToEmbed = `${product.name} ${product.description} ${product.colors.join(' ')} ${product.sizes.join(' ')}`;
-            const embedding = await this.gemini.generateEmbedding(textToEmbed);
+            const embedding = await this.geminiMultimodal.generateEmbedding(textToEmbed);
             if (!embedding || embedding.length === 0) {
                 this.logger.warn(`⚠️ Empty embedding for product ${product.id}. Skipping Pinecone sync.`);
                 return;
@@ -245,6 +248,7 @@ exports.ProductService = ProductService = ProductService_1 = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         gemini_service_1.GeminiService,
+        gemini_multimodal_service_1.GeminiMultimodalService,
         pinecone_service_1.PineconeService,
         redis_service_1.RedisService])
 ], ProductService);

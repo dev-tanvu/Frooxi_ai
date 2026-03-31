@@ -1,24 +1,26 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { GeminiService } from '../ai/gemini.service';
+import { GeminiMultimodalService } from '../ai/gemini-multimodal.service';
 import { PineconeService } from '../ai/pinecone.service';
 import { RedisService } from '../redis/redis.service';
 export declare class ProductService {
     private prisma;
     private gemini;
+    private geminiMultimodal;
     private pinecone;
     private redis;
     private readonly logger;
-    constructor(prisma: PrismaService, gemini: GeminiService, pinecone: PineconeService, redis: RedisService);
+    constructor(prisma: PrismaService, gemini: GeminiService, geminiMultimodal: GeminiMultimodalService, pinecone: PineconeService, redis: RedisService);
     upsertProducts(products: any[]): Promise<void>;
     private syncSingleProduct;
     searchProducts(query: string, limit?: number): Promise<any>;
     private isGibberish;
     getFeaturedProducts(limit?: number): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -31,10 +33,10 @@ export declare class ProductService {
         take?: number;
         search?: string;
     }): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -43,10 +45,10 @@ export declare class ProductService {
         metadata: Prisma.JsonValue | null;
     }[]>;
     findOne(id: string): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -55,10 +57,10 @@ export declare class ProductService {
         metadata: Prisma.JsonValue | null;
     } | null>;
     create(data: any): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -67,10 +69,10 @@ export declare class ProductService {
         metadata: Prisma.JsonValue | null;
     }>;
     update(id: string, data: any): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];
@@ -79,10 +81,10 @@ export declare class ProductService {
         metadata: Prisma.JsonValue | null;
     }>;
     delete(id: string): Promise<{
-        id: string;
-        updatedAt: Date;
         name: string;
+        id: string;
         createdAt: Date;
+        updatedAt: Date;
         price: number | null;
         colors: string[];
         sizes: string[];

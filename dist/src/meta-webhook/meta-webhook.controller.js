@@ -21,17 +21,27 @@ const meta_webhook_service_1 = require("./meta-webhook.service");
 const meta_signature_guard_1 = require("./meta-signature.guard");
 const api_key_guard_1 = require("../ai/api-key.guard");
 const encryption_service_1 = require("../common/encryption.service");
+const bullmq_1 = require("@nestjs/bullmq");
+const bullmq_2 = require("bullmq");
+const webhook_normalizer_service_1 = require("./webhook-normalizer.service");
+const redis_service_1 = require("../redis/redis.service");
 let MetaWebhookController = MetaWebhookController_1 = class MetaWebhookController {
     metaWebhookService;
     prisma;
     encryptionService;
     configService;
+    normalizer;
+    redis;
+    webhookQueue;
     logger = new common_1.Logger(MetaWebhookController_1.name);
-    constructor(metaWebhookService, prisma, encryptionService, configService) {
+    constructor(metaWebhookService, prisma, encryptionService, configService, normalizer, redis, webhookQueue) {
         this.metaWebhookService = metaWebhookService;
         this.prisma = prisma;
         this.encryptionService = encryptionService;
         this.configService = configService;
+        this.normalizer = normalizer;
+        this.redis = redis;
+        this.webhookQueue = webhookQueue;
     }
     async setupIntegration(data) {
         try {
@@ -84,30 +94,33 @@ let MetaWebhookController = MetaWebhookController_1 = class MetaWebhookControlle
     }
     async handleIncomingMessage(req, res) {
         const body = req.body;
-        this.logger.log('========================================');
         this.logger.log('📩 WEBHOOK RECEIVED');
-        this.logger.log('========================================');
         this.logger.log(`Object Type: ${body.object}`);
-        this.logger.log(`Full Payload:\n${JSON.stringify(body, null, 2)}`);
-        this.logger.log('========================================');
         if (body.object === 'page' || body.object === 'instagram' || body.object === 'whatsapp_business' || body.object === 'whatsapp_business_account') {
-            body.entry?.forEach((entry) => {
-                const messaging = entry.messaging?.[0];
-                const changes = entry.changes?.[0];
-                if (messaging) {
-                    this.logger.log(`👤 Platform: ${body.object === 'instagram' ? 'IG' : 'Messenger'} | Sender ID: ${messaging.sender?.id}`);
-                    this.logger.log(`📄 Message Text: ${messaging.message?.text || '(no text)'}`);
-                }
-                else if (changes?.value?.messages?.[0]) {
-                    const waMessage = changes.value.messages[0];
-                    this.logger.log(`👤 Platform: WhatsApp | Sender: ${waMessage.from} | Type: ${waMessage.type}`);
-                    this.logger.log(`📄 Message Text: ${waMessage.text?.body || '(no text)'}`);
-                }
+            for (const entry of body.entry || []) {
                 entry.objectType = body.object;
-                this.metaWebhookService.handleWebhookEvent(entry).catch(err => {
-                    this.logger.error(`🔥 Background Webhook Error: ${err.message}`, err.stack);
-                });
-            });
+                const normalized = (entry.objectType === 'whatsapp_business' || entry.objectType === 'whatsapp_business_account')
+                    ? await this.normalizer.normalizeWhatsAppEvent(entry)
+                    : this.normalizer.normalizeMessengerEvent(entry);
+                if (normalized) {
+                    const { senderId, pageId, platform, type } = normalized;
+                    this.logger.log(`📥 Queuing ${type} from ${senderId} for Page ${pageId} (${platform})`);
+                    await this.redis.pushToBuffer(senderId, normalized);
+                    await this.webhookQueue.add('meta-event', {
+                        senderId,
+                        pageId,
+                        platform,
+                        type,
+                        triggerTimestamp: Date.now(),
+                    }, {
+                        jobId: normalized.message?.mid || `${senderId}-${Date.now()}`,
+                        attempts: 3,
+                        backoff: { type: 'exponential', delay: 1000 }
+                    }).catch(err => {
+                        this.logger.error(`❌ Failed to queue webhook: ${err.message}`);
+                    });
+                }
+            }
             return res.status(common_1.HttpStatus.OK).send('EVENT_RECEIVED');
         }
         else {
@@ -143,9 +156,13 @@ __decorate([
 ], MetaWebhookController.prototype, "handleIncomingMessage", null);
 exports.MetaWebhookController = MetaWebhookController = MetaWebhookController_1 = __decorate([
     (0, common_1.Controller)('webhook'),
+    __param(6, (0, bullmq_1.InjectQueue)('webhook')),
     __metadata("design:paramtypes", [meta_webhook_service_1.MetaWebhookService,
         prisma_service_1.PrismaService,
         encryption_service_1.EncryptionService,
-        config_1.ConfigService])
+        config_1.ConfigService,
+        webhook_normalizer_service_1.WebhookNormalizerService,
+        redis_service_1.RedisService,
+        bullmq_2.Queue])
 ], MetaWebhookController);
 //# sourceMappingURL=meta-webhook.controller.js.map

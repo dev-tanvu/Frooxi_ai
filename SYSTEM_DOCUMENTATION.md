@@ -1,6 +1,6 @@
 # Frooxi AI — System Documentation
 
-> **Version**: 1.1 | **Last Updated**: March 26, 2026 | **Stack**: NestJS + Prisma + PostgreSQL (Neon) + Redis + Pinecone + Google Gemini
+> **Version**: 1.2 | **Last Updated**: March 30, 2026 | **Stack**: NestJS + Prisma + PostgreSQL (Neon) + Redis + Pinecone + Google Gemini
 
 ---
 
@@ -8,7 +8,8 @@
 1. [Architecture Overview](#architecture-overview)
 2. [Message Flow (End-to-End)](#message-flow)
 3. [AI Agents](#ai-agents)
-4. [Database Schema](#database-schema)
+4. [Shopping Cart System](#shopping-cart-system)
+5. [Database Schema](#database-schema)
 5. [Redis Caching Layer](#redis-caching-layer)
 6. [Product Search Pipeline](#product-search-pipeline)
 7. [Order Processing](#order-processing)
@@ -33,9 +34,9 @@
 | ORM | Prisma | Type-safe database client |
 | Cache | Redis (Upstash) | Conversation history, search cache |
 | Vector DB | Pinecone | Image similarity search |
-| AI | Google Gemini 2.5 | Text generation + embeddings |
-| Platform | Facebook Messenger (Graph API v25.0) | Customer chat interface |
-| Security | Helmet + CORS + ValidationPipe | HTTP hardening |
+| AI | Google Gemini 1.5 & 2.0 | Text generation + embeddings |
+| Platform | Messenger & WhatsApp (Graph v25.0) | Customer chat interface |
+| Security | Helmet + AES-256-GCM + RBAC | HTTP hardening |
 
 ### Key Services
 
@@ -61,94 +62,73 @@
 
 ## Message Flow
 
-### Step-by-Step: What happens when a user sends a message
+### Step-by-Step: Unified Processing Pipeline
 
 ```
-1. Facebook POST → /webhook (NestJS controller)
+1. Meta POST → /webhook (NestJS controller)
 2. handleWebhookEvent(event) — THE GATEWAY
    │
-   ├── STEP 1: Echo Check (instant, in-memory)
-   │   ├── Bot echo (app_id matches) → ignore
-   │   └── Admin/human echo → suppress AI for 30 min for that user
+   ├── STEP 1: Webhook Deduplication (Redis SETNX)
+   │   └── Prevent processing Meta's retry duplicates (5 min TTL)
    │
-   ├── STEP 2: Parallel Operations
-   │   ├── markSeen (fire-and-forget)
-   │   ├── startTypingHeartbeat (15s interval)
-   │   └── checkSpam (Cached DB settings)
+   ├── STEP 2: Parallel State Checks (Redis Pipeline)
+   │   ├── Get Admin Pause (admin_pause:{senderId})
+   │   ├── Get Spam Block (spam_block:{senderId})
+   │   └── Get Last Message Timestamp (last_msg_ts:{senderId})
    │
-   ├── STEP 3: Spam Gate
-   │   └── Blocked? → send block message, return
+   ├── STEP 3: Spam Protection (Redis Sorted Sets)
+   │   └── Check rate limit (5 msgs / 30s) → Block if over
    │
-   ├── STEP 4: Admin Override
-   │   └── AI suppressed? → stop typing, return
+   ├── STEP 4: Session Logic
+   │   └── Reset Order session if > 1 hour since last message
    │
-   ├── STEP 5: Agent Availability
-   │   └── Agent OFF? → send unavailableMessage, notify admin, return (Behaviour agent returns silent)
-   │
-   └── STEP 6: Route to Agent
-       ├── Has image? → send "image received" feedback → Visual Agent
-       ├── Has audio? → send "voice received" feedback → Voice Agent (60s limit)
-       └── Has text? → Text Agent
+   ├── STEP 5: Route to Agent Lifecycle
+   │   ├── Has image? → Visual Agent (Multimodal RAG)
+   │   ├── Has audio? → Voice Agent (Direct File Processing)
+   │   └── Has text?  → Route to Agent Logic
+   │       ├── Fast Path Intent detection (High-frequency patterns)
+   │       ├── Smart Handoff (Check for Buy/Order intent)
+   │       └── Agent Lifecycle Process
 ```
 
-### Voice Agent Flow (`processVoiceAgent`)
+### Smart Agent Lifecycle (`executeAgentLifecycle`)
+
+Every agent call now follows a standard containerized execution flow to ensure performance:
+1.  **Context Loading (Cached):** Loads Integration, Customer, and Conversation from Redis (10m TTL) or DB.
+2.  **Concurrency Check:** Atomic **Redis INCR** (Active tasks 0-50). Instant backpressure if full.
+3.  **Typing Heartbeat:** Single fire-and-forget call (Meta auto-expires in 20s).
+4.  **Logic Execution:** Executes the specific Agent's LLM or code logic.
+5.  **Clean up:** Atomic **Redis DECR** to release slot + `typing_off`.
+
+### Optimized Text Agent Flow (`processTextAgent`)
 
 ```
-1. PRE-CHECK:
-   └── durationMs > 60000? → send rejection, trigger HANDOFF, return
+1. FAQ FAST PATH:
+   └── Check keywords for "hours", "location", "delivery" etc. → Reply & Return.
 
-2. FAST FEEDBACK:
-   └── send voiceReceivedMessage immediately (non-blocking)
+2. CONDITIONAL RAG (Smart Search):
+   ├── CALL LLM (e.g. Gemini 2.0 Flash) → Extract intent and [search_queries]
+   ├── Inspect [search_queries]:
+   │   ├── HAS QUERIES: Run searchProducts(queries) in parallel across DB/Pinecone.
+   │   └── NO QUERIES: Skip all Database and Pinecone searches (0ms cost).
+   └── Skip search for "Hello", "Thanks", etc. entirely.
 
-3. MEMORY-ONLY DOWNLOAD:
-   └── httpService.get(url) → Buffer (RAM) — No disk storage used
-
-4. AI PROCESSING (Gemini 1.5):
-   ├── Send Audio Buffer + History + Product Context
-   └── Logic: Identify Language + Transcribe + Generate Sales Response
-
-5. PERSISTENCE:
-   ├── Transcription saved to DB/Redis as USER message ([Voice]: ...)
-   └── Response sent via sendOptimizedResponse()
+3. SALES RESPONSE:
+   └── Use extracted context + results to generate the final customer reply.
 ```
 
-### Text Agent Flow (`processTextAgent`)
+### Multi-modal Agent Flow (Voice/Visual)
 
 ```
-1. PARALLEL FETCH (Promise.all):
-   ├── getOrCreateContext(pageId, senderId)     → DB: integration, customer, conversation
-   ├── getActiveAgentByName('Text Agent')       → DB: agent config + model
-   ├── getActiveAgentByName('Behaviour Agent')  → DB: behaviour agent config
-   ├── redis.getHistory(senderId, 10)           → Redis: last 10 messages
-   └── redis.get('emotion:{senderId}')          → Redis: cached emotion from LAST message
+1. FAST FEEDBACK:
+   └── send "Thinking..." message immediately (non-blocking).
 
-2. PERSIST MESSAGE (Promise.all):
-   ├── persistMessage(conversationId, 'USER', text)  → DB
-   └── redis.addMessage(senderId, 'USER', text)       → Redis
+2. ZERO-STORAGE DOWNLOAD:
+   └── httpService.get(url) → Buffer (RAM) — No persistent files created.
 
-3. FAQ FAST PATH:
-   └── detectInfoCategory(text) → faqService.findFaqMatch()
-       └── Match? → reply immediately, skip AI entirely
-
-4. INTENT DETECTION:
-   ├── detectIntentFastPath(text, history)  → Rule-based (handles ~80% of cases)
-   └── Fallback: gemini.analyzeEmotionAndIntent()  → Behaviour Agent LLM call
-
-5. FIRE-AND-FORGET: Cache emotion in Redis (10min TTL) for next message's tone
-
-6. PRODUCT SEARCH:
-   ├── Ordering mode? → fetch locked product from active order
-   ├── Follow-up? → reuse last_product:{senderId} from Redis
-   ├── New search → getCachedSearchResults (Redis 5min → Neon DB → Pinecone fallback)
-   └── Buy intent? → prune to top result only
-
-7. AI RESPONSE: gemini.generateSalesResponse() (StoreConfig cached in-memory)
-
-8. ORDER EXTRACTION: Parse [ORDER_READY:] and [ORDER_UPDATE:] tags
-
-9. SEND RESPONSE: sendOptimizedResponse() → splits by [SPLIT], sends text + images
-
-10. BACKGROUND: Every 5th message → extract behavioral profile (fire-and-forget)
+3. AI PROCESSING:
+   ├── Send Media Buffer + History + Context to Gemini.
+   └── Response sent via sendOptimizedResponse().
 ```
 
 ---
@@ -162,7 +142,7 @@
 | **Text Agent** | `gemini-1.5-flash` | — | Handles all text conversations, product search, ordering |
 | **Visual Agent** | `gemini-1.5-flash` | `gemini-embedding-2-preview` | Image-based product matching via Pinecone |
 | **Voice Agent** | `gemini-1.5-flash` | — | Direct audio processing, transcription, language mirroring |
-| **Behaviour Agent** | `gemini-1.5-flash` | — | Analyzes emotion/intent, extracts behavioral profiles |
+| **Behaviour Agent** | `gemini-1.5-flash` | — | Analyzes emotion/intent (Browsing, Buying, Removing), extracts behavioral profiles |
 
 ### Agent Database Fields (`ai_agents` table)
 
@@ -184,6 +164,39 @@
 |-----|---------|-----|
 | `imageReceivedMessage` | `"I am checking your images..."` | `PUT /ai-agents/system-messages` |
 | `voiceReceivedMessage` | `"I am listening to your voice note... 🎧"` | `PUT /ai-agents/system-messages` |
+
+---
+
+## Shopping Cart System
+
+The cart system uses a hybrid approach (Redis for ephemeral interest, Postgres for committed interest) to balance performance and persistence.
+
+### Cart States (`product_interest`)
+
+| State | Storage | Trigger | Action |
+|---|---|---|---|
+| `NONE` | — | No product mentioned | No action. |
+| `DISCUSSING` | Redis | Asking about product | 15 min memory window. |
+| `CONFIRMED` | Database | "I want this", "Add to cart" | Persisted as `CartItem`. Supports `size`, `color`, and `quantity` extraction. |
+| `REMOVING` | Database | "Remove this", "Delete item" | Deletes matching `CartItem` variation. |
+| `CLEAR_ALL` | Database | "Empty my cart", "Clear all" | Deletes all `CartItem` entries for the user. |
+
+### Advanced Cart Logic
+
+| Feature | Description | Implementation |
+|---|---|---|
+| **Variation Support** | Supports multiple variants of the same product (Size/Color). | Unique key is `cartId + productId + size + color`. |
+| **Surgical Removal** | Removal intent deletes specific size/color combinations. | `removeItemByProduct` strictly filters by variation metadata. |
+| **Quantity Extraction** | AI extracts numerical amount and operation type. | `quantity` (Int) + `quantity_operation` (`INCREMENT` or `SET`). |
+| **Failsafe Delete** | Setting quantity to `0` automatically deletes the item. | Protected in `CartService.addItem`. |
+
+### Abandoned Cart CRM (CRON)
+
+| Interval | Logic | Behavior |
+|---|---|---|
+| **Frequency** | Every 30 Minutes | Scans for `CartItem` older than 1 hour. |
+| **Cap** | **3 Follow-ups** | tracked via `followUpCount` on `CartItem`. |
+| **Escalation** | Dynamic | Attempt 1: Gentle check-in; Attempt 2: Service-oriented; Attempt 3: Final reminder. |
 
 ---
 
@@ -219,10 +232,12 @@
 | Key Pattern | TTL | Purpose |
 |---|---|---|
 | `conv:{senderId}` | **24 hours** | Conversation history |
+| `ctx:{pageId}:{senderId}` | **10 minutes** | Integration, Customer, and Conv metadata cache |
 | `msg_count:{senderId}` | **7 days** | Profile extraction trigger |
-| `emotion:{senderId}` | **10 minutes** | Fire-and-forget emotion cache |
+| `spam_block:{senderId}` | **10 minutes** | Active spam block indicator |
+| `spam:{senderId}` | **60 seconds** | Sorted set for message frequency window |
 | `last_product:{senderId}` | **24 hours** | Last discussed product for follow-ups |
-| `search:{query}` | **5/10 minutes** | Product search cache |
+| `search:{query}` | **10 minutes** | Product search cache |
 
 ---
 
@@ -246,6 +261,19 @@
 }
 ```
 
+### Order Triggering & Hardening
+
+Orders are processed via **AI Logic Tags** embedded in the `Order Agent` response:
+- `[ORDER_READY: { ... }]`: Triggers `createOrder` and clears the Postgres cart.
+- `[ORDER_UPDATE: { ... }]`: Updates the latest pending order.
+
+**Hardening (Source of Truth)**:
+To prevent AI hallucinations from dropping items in the final checkout:
+1. **DB Sync**: When `ORDER_READY` is triggered, the system fetches the current **Postgres Cart** as the ground truth.
+2. **Contextual Selection**: If the AI specifies items, the system uses those (partial checkout).
+3. **Fallback**: If the AI list is empty/incomplete, the system automatically pulls the entire DB Cart.
+4. **Price Lock**: All prices are re-validated against the `Product` table, ignoring any prices in the AI prompt.
+
 ### Delivery Fees (Driven by `ShippingZone`)
 
 | Zone | Price | Detection Logic |
@@ -265,9 +293,14 @@ Settings are stored in the database and fetched/cached via `SettingsService`.
 |---|---|---|
 | Max messages per window | **5** | ✅ via `SystemSettings` |
 | Time window | **30 seconds** | ⚠️ Hardcoded in webhook |
-| Block duration | **60 minutes** | ✅ via `SystemSettings` |
-| Block message | "⚠️ You've been temporarily blocked..." | Fixed String |
-| Voice Note Limit | **60 seconds** | ⚠️ Hardcoded for stability |
+| Block duration | **10 minutes** | ✅ via `SystemSettings` |
+| Block message | "⚠️ Warning: Excessive messaging detected..." | Fixed String |
+
+### Detection Logic
+The system uses a **Redis Sorted Set** for each user (`spam:{senderId}`).
+1. Each message timestamp is added as a member (O(log N)).
+2. Timestamps older than 30s are pruned during the same atomic operation.
+3. If the count in the set exceeds the threshold (5), a temporary block key (`spam_block:{senderId}`) is set in Redis.
 
 ### Multimodal Data Handling (Privacy & Storage)
 
@@ -303,15 +336,16 @@ WhatsApp media (images, voice notes) are not directly accessible via a URL in th
 
 ## Load Balancer & Concurrency Guard
 
-To prevent Out-Of-Memory (OOM) crashes and Gemini API exhaustion during high traffic, an **in-memory priority queue** operates inside `MetaWebhookService`.
+To prevent Out-Of-Memory (OOM) crashes and Gemini API exhaustion during high traffic, the system uses an **Atomic Redis Counter**.
 
 | Constraint | Limit | Behavior |
 |---|---|---|
-| **Max Concurrent Tasks** | `50` | Processes up to 50 users simultaneously. Excess are instantly sent to a waiting queue. |
-| **Max Queue Size** | `200` | Capped at 200 users. Users get a wait message: *"We're experiencing high traffic! You're in a short queue..."* |
-| **Overload Handoff** | > `250` total | Triggers `SYSTEM_OVERLOAD`. Request is dropped. User gets: *"Our system is currently overwhelmed... support team will respond shortly!"* |
+| **Max Concurrent Tasks** | `50` | Processes up to 50 users simultaneously across all cluster instances. |
+| **Enforcement** | `INCR` | Uses atomic Redis `INCR` to check the limit before processing any AI task. |
+| **Backpressure** | > `50` | Rejects the request immediately. Meta retries. User stays in a virtual "busy" state. |
+| **Self-Healing** | `TTL` | Counter has persistent 5-minute TTL to prevent permanent locks on crash. |
 
-*Note: This mechanism ensures RAM usage never exceeds a predictable threshold (e.g. 50 tasks × 2MB = 100MB max).*
+*Note: This mechanism ensures LLM rate limits are never exceeded and horizontally scales across multiple servers.*
 
 ---
 
@@ -330,15 +364,13 @@ All systems now strictly follow a **Fail-Closed** security model.
 
 | Severity | Issue | Area | Recommended Fix |
 |----------|-------|------|-----------------|
-| 🔴 High  | In-Memory Concurrency Guard | `meta-webhook.service.ts` | Move `activeAiTasks` queue to Redis to support multi-instance Kubernetes/PM2 scaling. Currently, scaling instances will multiply the AI slot limit leading to LLM rate limits. |
-| 🔴 High  | N+1 DB Queries on Checkout | `order.service.ts` | `createOrder` runs a `Promise.all` loop executing individual `findUnique` queries for every item in the cart. Needs refactoring to a single `findMany({ where: { id: { in: [] } } })` query. |
-| 🔴 High  | Cryptographic CPU Overhead | `meta-webhook.service.ts` | Every webhook decrypts AES-256-GCM tokens from Postgres on the fly. High throughput will spike CPU. Should cache decrypted tokens in Redis with 24h TTL. |
-| 🟡 Med   | Hardcoded Intent Regex (i18n) | `meta-webhook.service.ts` | `detectIntentFastPath` relies on hardcoded English patterns ("buying", "browsing"). Fails on regional dialects/Banglish, pushing too many trivial queries to the LLM. Move to DB dictionary. |
-| 🟡 Med   | Fragile JSON parsing from LLM | `gemini.service.ts` | Wrapping LLM JSON outputs directly in `JSON.parse` with basic try/catch defaults to "Neutral" state on failure. Needs an LLM retry block for malformed JSON outputs. |
+| 🔴 High  | Database Migration Safety | `prisma/` | Move GIN trigram indexes to a managed migration (avoid schema reset). |
+| 🟡 Med   | Hardcoded Intent Regex (i18n) | `meta-webhook.service.ts` | `detectIntentFastPath` relies on English patterns. Needs multi-language dictionary. |
+| 🟡 Med   | Fragile JSON parsing from LLM | `gemini.service.ts` | Needs an LLM auto-retry block for malformed JSON outputs. |
 | 🟢 Low   | Production Frontend URL  | `main.ts` | Pending Update of `ALLOWED_ORIGINS` for CORS. |
-| 🟢 Low   | Usage Counters  | `ai-agent.service.ts` | Agent Usage tracking is not implemented. Needs increment logic. |
+| 🟢 Low   | Usage Counters  | `ai-agent.service.ts` | Agent Usage tracking is not implemented. |
 
-*Note: Critical items from V1.0 (duplicate DB tables, empty DB columns, unbounded file logs, uncontrolled DB spam looping) were eradicated in V1.1 patch.*
+*Note: Critical items (In-Memory Counters, Webhook Deduplication, N+1 Stats Queries, CPU Token Overhead) were resolved in the V1.2 Optimization Sprint.*
 
 ---
 

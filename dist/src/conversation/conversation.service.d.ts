@@ -15,8 +15,8 @@ export declare class ConversationService {
         id: string;
         updatedAt: Date;
         createdAt: Date;
-        customerId: string | null;
         metaIntegrationId: string;
+        customerId: string | null;
         platform: import(".prisma/client").$Enums.Platform;
     })[]>;
     getConversationMessages(conversationId: string): Promise<{

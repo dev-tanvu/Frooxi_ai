@@ -34,9 +34,22 @@ export class StoreService implements OnModuleInit {
     if (this.configCache && Date.now() < this.configCacheExpiry) {
       return this.configCache;
     }
-    this.configCache = await this.prisma.storeConfig.findFirst();
-    this.configCacheExpiry = Date.now() + this.CACHE_TTL;
-    return this.configCache;
+
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        this.configCache = await this.prisma.storeConfig.findFirst();
+        this.configCacheExpiry = Date.now() + this.CACHE_TTL;
+        return this.configCache;
+      } catch (err) {
+        retries--;
+        if (retries === 0) {
+          this.logger.error(`Database connection failed in getConfig: ${err.message}`);
+          return { businessDetails: 'Frooxi', defaultSystem: true }; // Safe fallback
+        }
+        await new Promise(res => setTimeout(res, 1000)); // Delay
+      }
+    }
   }
 
   async updateConfig(data: any) {
@@ -63,11 +76,24 @@ export class StoreService implements OnModuleInit {
     if (this.rulesCache && Date.now() < this.rulesCacheExpiry) {
       return this.rulesCache;
     }
-    this.rulesCache = await this.prisma.storeRule.findMany({
-      where: { active: true },
-    });
-    this.rulesCacheExpiry = Date.now() + this.CACHE_TTL;
-    return this.rulesCache;
+    
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        this.rulesCache = await this.prisma.storeRule.findMany({
+          where: { active: true },
+        });
+        this.rulesCacheExpiry = Date.now() + this.CACHE_TTL;
+        return this.rulesCache;
+      } catch (err) {
+        retries--;
+        if (retries === 0) {
+          this.logger.error(`Database connection failed in findActiveRules: ${err.message}`);
+          return []; // Safe fallback to allow AI generation to continue without rules
+        }
+        await new Promise(res => setTimeout(res, 1000)); // Delay
+      }
+    }
   }
 
   async createRule(data: any) {

@@ -44,9 +44,22 @@ let StoreService = StoreService_1 = class StoreService {
         if (this.configCache && Date.now() < this.configCacheExpiry) {
             return this.configCache;
         }
-        this.configCache = await this.prisma.storeConfig.findFirst();
-        this.configCacheExpiry = Date.now() + this.CACHE_TTL;
-        return this.configCache;
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                this.configCache = await this.prisma.storeConfig.findFirst();
+                this.configCacheExpiry = Date.now() + this.CACHE_TTL;
+                return this.configCache;
+            }
+            catch (err) {
+                retries--;
+                if (retries === 0) {
+                    this.logger.error(`Database connection failed in getConfig: ${err.message}`);
+                    return { businessDetails: 'Frooxi', defaultSystem: true };
+                }
+                await new Promise(res => setTimeout(res, 1000));
+            }
+        }
     }
     async updateConfig(data) {
         const config = await this.getConfig();
@@ -67,11 +80,24 @@ let StoreService = StoreService_1 = class StoreService {
         if (this.rulesCache && Date.now() < this.rulesCacheExpiry) {
             return this.rulesCache;
         }
-        this.rulesCache = await this.prisma.storeRule.findMany({
-            where: { active: true },
-        });
-        this.rulesCacheExpiry = Date.now() + this.CACHE_TTL;
-        return this.rulesCache;
+        let retries = 3;
+        while (retries > 0) {
+            try {
+                this.rulesCache = await this.prisma.storeRule.findMany({
+                    where: { active: true },
+                });
+                this.rulesCacheExpiry = Date.now() + this.CACHE_TTL;
+                return this.rulesCache;
+            }
+            catch (err) {
+                retries--;
+                if (retries === 0) {
+                    this.logger.error(`Database connection failed in findActiveRules: ${err.message}`);
+                    return [];
+                }
+                await new Promise(res => setTimeout(res, 1000));
+            }
+        }
     }
     async createRule(data) {
         this.rulesCache = null;

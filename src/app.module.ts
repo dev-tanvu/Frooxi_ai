@@ -22,6 +22,8 @@ import { DebugModule } from './debug/debug.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { SettingsModule } from './settings/settings.module';
 import { CommonModule } from './common/common.module';
+import { CartModule } from './cart/cart.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { CommonModule } from './common/common.module';
       limit: 30, // 30 requests per minute by default
     }]),
     PrismaModule,
+    QueueModule,
     MetaWebhookModule,
     AiModule,
     RedisModule,
@@ -47,7 +50,8 @@ import { CommonModule } from './common/common.module';
     DebugModule,
     AiAgentModule,
     SettingsModule,
-    CommonModule
+    CommonModule,
+    CartModule
   ],
   controllers: [AppController],
   providers: [

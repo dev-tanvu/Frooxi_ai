@@ -9,6 +9,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AiModule = void 0;
 const common_1 = require("@nestjs/common");
 const gemini_service_1 = require("./gemini.service");
+const gemini_behaviour_service_1 = require("./gemini-behaviour.service");
+const gemini_response_service_1 = require("./gemini-response.service");
+const gemini_multimodal_service_1 = require("./gemini-multimodal.service");
 const pinecone_service_1 = require("./pinecone.service");
 const ai_controller_1 = require("./ai.controller");
 const store_module_1 = require("../store/store.module");
@@ -21,9 +24,21 @@ exports.AiModule = AiModule = __decorate([
     (0, common_1.Global)(),
     (0, common_1.Module)({
         imports: [store_module_1.StoreModule, faq_module_1.FaqModule, ai_agent_module_1.AiAgentModule],
-        providers: [gemini_service_1.GeminiService, pinecone_service_1.PineconeService],
+        providers: [
+            gemini_service_1.GeminiService,
+            gemini_behaviour_service_1.GeminiBehaviourService,
+            gemini_response_service_1.GeminiResponseService,
+            gemini_multimodal_service_1.GeminiMultimodalService,
+            pinecone_service_1.PineconeService
+        ],
         controllers: [ai_controller_1.AiController],
-        exports: [gemini_service_1.GeminiService, pinecone_service_1.PineconeService],
+        exports: [
+            gemini_service_1.GeminiService,
+            gemini_behaviour_service_1.GeminiBehaviourService,
+            gemini_response_service_1.GeminiResponseService,
+            gemini_multimodal_service_1.GeminiMultimodalService,
+            pinecone_service_1.PineconeService
+        ],
     })
 ], AiModule);
 //# sourceMappingURL=ai.module.js.map

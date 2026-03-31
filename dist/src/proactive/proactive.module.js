@@ -8,15 +8,21 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProactiveModule = void 0;
 const common_1 = require("@nestjs/common");
+const bullmq_1 = require("@nestjs/bullmq");
 const proactive_service_1 = require("./proactive.service");
+const proactive_processor_1 = require("./proactive.processor");
 const meta_webhook_module_1 = require("../meta-webhook/meta-webhook.module");
 let ProactiveModule = class ProactiveModule {
 };
 exports.ProactiveModule = ProactiveModule;
 exports.ProactiveModule = ProactiveModule = __decorate([
     (0, common_1.Module)({
-        imports: [meta_webhook_module_1.MetaWebhookModule],
-        providers: [proactive_service_1.ProactiveService]
+        imports: [
+            meta_webhook_module_1.MetaWebhookModule,
+            bullmq_1.BullModule.registerQueue({ name: 'proactive' }),
+        ],
+        providers: [proactive_service_1.ProactiveService, proactive_processor_1.ProactiveProcessor],
+        exports: [proactive_service_1.ProactiveService]
     })
 ], ProactiveModule);
 //# sourceMappingURL=proactive.module.js.map

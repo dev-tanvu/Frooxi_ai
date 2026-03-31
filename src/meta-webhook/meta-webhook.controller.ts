@@ -6,6 +6,10 @@ import { MetaWebhookService } from './meta-webhook.service';
 import { MetaSignatureGuard } from './meta-signature.guard';
 import { ApiKeyGuard } from '../ai/api-key.guard';
 import { EncryptionService } from '../common/encryption.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { WebhookNormalizerService } from './webhook-normalizer.service';
+import { RedisService } from '../redis/redis.service';
 
 @Controller('webhook')
 export class MetaWebhookController {
@@ -16,6 +20,9 @@ export class MetaWebhookController {
         private readonly prisma: PrismaService,
         private readonly encryptionService: EncryptionService,
         private readonly configService: ConfigService,
+        private readonly normalizer: WebhookNormalizerService,
+        private readonly redis: RedisService,
+        @InjectQueue('webhook') private readonly webhookQueue: Queue,
     ) { }
 
     /**
@@ -88,42 +95,48 @@ export class MetaWebhookController {
         const body = req.body;
 
         // ====== WEBHOOK DEBUG LOG ======
-        this.logger.log('========================================');
         this.logger.log('📩 WEBHOOK RECEIVED');
-        this.logger.log('========================================');
         this.logger.log(`Object Type: ${body.object}`);
-        this.logger.log(`Full Payload:\n${JSON.stringify(body, null, 2)}`);
-        this.logger.log('========================================');
 
         // Check if this is an event from a page subscription or WhatsApp Business
         if (body.object === 'page' || body.object === 'instagram' || body.object === 'whatsapp_business' || body.object === 'whatsapp_business_account') {
 
             // Iterate over each entry
-            body.entry?.forEach((entry: any) => {
-                const messaging = entry.messaging?.[0];
-                const changes = entry.changes?.[0];
-
-                if (messaging) {
-                    this.logger.log(`👤 Platform: ${body.object === 'instagram' ? 'IG' : 'Messenger'} | Sender ID: ${messaging.sender?.id}`);
-                    this.logger.log(`📄 Message Text: ${messaging.message?.text || '(no text)'}`);
-                } else if (changes?.value?.messages?.[0]) {
-                    const waMessage = changes.value.messages[0];
-                    this.logger.log(`👤 Platform: WhatsApp | Sender: ${waMessage.from} | Type: ${waMessage.type}`);
-                    this.logger.log(`📄 Message Text: ${waMessage.text?.body || '(no text)'}`);
-                }
-
-                // Pass the whole entry to the service handler (Non-blocking)
+            for (const entry of body.entry || []) {
                 // Attach object type so service knows the origin platform
                 entry.objectType = body.object;
-                this.metaWebhookService.handleWebhookEvent(entry).catch(err => {
-                    this.logger.error(`🔥 Background Webhook Error: ${err.message}`, err.stack);
-                });
-            });
+                
+                const normalized = (entry.objectType === 'whatsapp_business' || entry.objectType === 'whatsapp_business_account')
+                    ? await this.normalizer.normalizeWhatsAppEvent(entry)
+                    : this.normalizer.normalizeMessengerEvent(entry);
+
+                if (normalized) {
+                    const { senderId, pageId, platform, type } = normalized;
+                    this.logger.log(`📥 Queuing ${type} from ${senderId} for Page ${pageId} (${platform})`);
+                    
+                    // 🧠 ORCHESTRATOR: Push message data to the burst buffer
+                    await this.redis.pushToBuffer(senderId, normalized);
+
+                    // Add a lightweight trigger job — the processor will drain the buffer
+                    await this.webhookQueue.add('meta-event', {
+                        senderId,
+                        pageId,
+                        platform,
+                        type,
+                        triggerTimestamp: Date.now(),
+                    }, {
+                        jobId: normalized.message?.mid || `${senderId}-${Date.now()}`,
+                        attempts: 3,
+                        backoff: { type: 'exponential', delay: 1000 }
+                    }).catch(err => {
+                        this.logger.error(`❌ Failed to queue webhook: ${err.message}`);
+                    });
+                }
+            }
 
             // Returns a '200 OK' response immediately
             return res.status(HttpStatus.OK).send('EVENT_RECEIVED');
         } else {
-            // Returns a '404 Not Found' if event is not from a page subscription
             return res.sendStatus(HttpStatus.NOT_FOUND);
         }
     }

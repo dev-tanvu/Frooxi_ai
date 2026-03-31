@@ -1,17 +1,79 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import { MetaWebhookService } from './meta-webhook/meta-webhook.service';
 import { MetaApiService } from './meta-webhook/meta-api.service';
 import { EncryptionService } from './common/encryption.service';
 
 @Injectable()
-export class AppService {
+export class AppService implements OnModuleInit {
+  private readonly logger = new Logger(AppService.name);
+
   constructor(
     private prisma: PrismaService,
     private metaWebhook: MetaWebhookService,
     private metaApi: MetaApiService,
     private encryption: EncryptionService
   ) {}
+
+  async onModuleInit() {
+    await this.seedMetaIntegration();
+  }
+
+  private async seedMetaIntegration() {
+    const pageId = process.env.META_PAGE_ID;
+    const pageAccessToken = process.env.META_PAGE_ACCESS_TOKEN;
+    const wabaId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+
+    if (!pageId || !pageAccessToken) {
+      this.logger.warn('Skipping MetaIntegration seed: META_PAGE_ID or META_PAGE_ACCESS_TOKEN not found in environment');
+      return;
+    }
+
+    try {
+      // Find or create a default user to own the integration
+      let user = await this.prisma.user.findFirst();
+      if (!user) {
+        user = await this.prisma.user.create({
+          data: {
+            email: 'admin@system.local',
+            password: 'auto-generated-seed-password-do-not-use',
+            name: 'System Admin'
+          }
+        });
+        this.logger.log('Created default system admin user for MetaIntegration');
+      }
+
+      const encryptedToken = this.encryption.encrypt(pageAccessToken);
+
+      const existing = await this.prisma.metaIntegration.findUnique({
+        where: { pageId }
+      });
+
+      if (!existing) {
+        await this.prisma.metaIntegration.create({
+          data: {
+            pageId,
+            pageAccessToken: encryptedToken,
+            wabaId: wabaId || null,
+            userId: user.id,
+            businessName: process.env.META_BUSINESS_NAME || 'Auto-Seeded Integration'
+          }
+        });
+        this.logger.log(`✅ Automatically seeded MetaIntegration from .env for Page ID: ${pageId}`);
+      } else {
+        await this.prisma.metaIntegration.update({
+          where: { pageId },
+          data: {
+            pageAccessToken: encryptedToken,
+            wabaId: wabaId || null,
+          }
+        });
+        this.logger.log(`🔄 Automatically updated MetaIntegration from .env for Page ID: ${pageId}`);
+      }
+    } catch (error) {
+       this.logger.error(`❌ Failed to seed MetaIntegration: ${error.message}`);
+    }
+  }
 
   getHello(): string {
     return 'Hello World!';
@@ -27,31 +89,17 @@ export class AppService {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const messageStats = await this.prisma.message.groupBy({
-      by: ['createdAt'],
-      where: {
-        createdAt: {
-          gte: sevenDaysAgo,
-        },
-      },
-      _count: {
-        id: true,
-      },
-      orderBy: {
-        createdAt: 'asc',
-      },
-    });
+    const messageStats = await this.prisma.$queryRaw<any[]>`
+      SELECT DATE_TRUNC('day', "createdAt") as date, COUNT(*)::int as count
+      FROM "Message"
+      WHERE "createdAt" >= ${sevenDaysAgo}
+      GROUP BY DATE_TRUNC('day', "createdAt")
+      ORDER BY date ASC
+    `;
 
-    // Simplify the date grouping for the frontend (Map to YYYY-MM-DD)
-    const historyMap: Record<string, number> = {};
-    messageStats.forEach(stat => {
-      const dateKey = stat.createdAt.toISOString().split('T')[0];
-      historyMap[dateKey] = (historyMap[dateKey] || 0) + stat._count.id;
-    });
-
-    const messageHistory = Object.entries(historyMap).map(([date, count]) => ({
-      date,
-      messages: count,
+    const messageHistory = messageStats.map(stat => ({
+      date: new Date(stat.date).toISOString().split('T')[0],
+      messages: Number(stat.count),
     }));
 
     return {

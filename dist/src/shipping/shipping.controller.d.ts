@@ -8,10 +8,10 @@ export declare class ShippingController {
         name: string;
         active: boolean;
         createdAt: Date;
-        price: number;
         division: string | null;
         district: string | null;
         thana: string | null;
+        price: number;
     }[]>;
     createZone(data: any): Promise<{
         id: string;
@@ -19,10 +19,10 @@ export declare class ShippingController {
         name: string;
         active: boolean;
         createdAt: Date;
-        price: number;
         division: string | null;
         district: string | null;
         thana: string | null;
+        price: number;
     }>;
     updateZone(id: string, data: any): Promise<{
         id: string;
@@ -30,10 +30,10 @@ export declare class ShippingController {
         name: string;
         active: boolean;
         createdAt: Date;
-        price: number;
         division: string | null;
         district: string | null;
         thana: string | null;
+        price: number;
     }>;
     deleteZone(id: string): Promise<{
         id: string;
@@ -41,9 +41,9 @@ export declare class ShippingController {
         name: string;
         active: boolean;
         createdAt: Date;
-        price: number;
         division: string | null;
         district: string | null;
         thana: string | null;
+        price: number;
     }>;
 }

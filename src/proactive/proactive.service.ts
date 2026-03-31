@@ -1,92 +1,123 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MetaApiService } from '../meta-webhook/meta-api.service';
 import { EncryptionService } from '../common/encryption.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
-export class ProactiveService {
+export class ProactiveService implements OnModuleInit {
     private readonly logger = new Logger(ProactiveService.name);
 
     constructor(
         private prisma: PrismaService,
         private metaApi: MetaApiService,
         private encryption: EncryptionService,
+        @InjectQueue('proactive') private proactiveQueue: Queue,
     ) {}
 
-    // 1. Abandoned Cart Follow-Up
-    // Runs every 30 minutes to find PLACED orders older than specified intervals
-    @Cron(CronExpression.EVERY_30_MINUTES)
+    async onModuleInit() {
+        // Register Repeatable Jobs in BullMQ
+        // This ensures the jobs run even if the server restarts and provides visibility in BullBoard
+        
+        // 1. Abandoned Cart Follow-Up (Every 30 minutes)
+        await this.proactiveQueue.add(
+            'handle-abandoned-carts',
+            {},
+            {
+                repeat: { pattern: '*/30 * * * *' }, // Every 30 minutes
+                jobId: 'abandoned-cart-sync'
+            }
+        );
+
+        // 2. Post-Purchase Feedback (Daily at 12 PM)
+        await this.proactiveQueue.add(
+            'handle-feedback-loop',
+            {},
+            {
+                repeat: { pattern: '0 12 * * *' }, // 12:00 PM daily
+                jobId: 'feedback-loop-sync'
+            }
+        );
+
+        this.logger.log('🚀 Proactive Repeatable Jobs registered in BullMQ');
+    }
+
+    // 1. Abandoned Cart Follow-Up Logic
     async handleAbandonedCarts() {
-        this.logger.log('🕒 Running Abandoned Cart CRON job...');
+        this.logger.log('🕒 Running Abandoned Cart Task...');
         await this.prisma.ensureConnected();
 
-        // Define time intervals for abandonment follow-ups
         const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const MAX_FOLLOW_UPS = 3;
 
         try {
-            // Check for orders that need follow-ups at different intervals
-            const abandonedOrders = await this.prisma.order.findMany({
+            const abandonedCartItems = await this.prisma.cartItem.findMany({
                 where: {
-                    status: 'PLACED' as any,
-                    abandonedFollowUpSent: false,
-                    createdAt: { lt: oneHourAgo }
+                    addedAt: { lt: oneHourAgo },
+                    followUpCount: { lt: MAX_FOLLOW_UPS }
                 },
-                include: { items: true }
-            }) as any;
+                include: {
+                    cart: {
+                        include: {
+                            customer: {
+                                include: { metaIntegration: true }
+                            }
+                        }
+                    }
+                }
+            }) as any[];
 
-            for (const order of abandonedOrders) {
+            for (const item of abandonedCartItems) {
+                const customer = item.cart.customer;
                 try {
-                    this.logger.log(`🛒 Sending abandoned cart follow-up for Order ${order.id}`);
-                    const integration = await this.prisma.metaIntegration.findUnique({
-                        where: { id: order.customer.metaIntegrationId }
-                    });
+                    if (customer.isOptedOut) continue;
+
+                    this.logger.log(`🛒 Sending abandoned cart follow-up #${item.followUpCount + 1} for Product: ${item.productName} (Customer: ${customer.name})`);
+                    const integration = customer.metaIntegration;
 
                     if (integration) {
                         integration.pageAccessToken = this.encryption.decrypt(integration.pageAccessToken);
                     }
 
                     if (integration && integration.pageId && integration.pageAccessToken) {
-                        const itemName = order.items.length > 0 ? order.items[0].productName : 'your item';
-                        
-                        // Determine which follow-up message to send based on timing
-                        let message = `Hi ${order.customerName.split(' ')[0]}! Just checking in about your interest in ${itemName}. If you have any questions, I'm here to help! 😊`;
-                        if (order.createdAt <= oneHourAgo) {
-                            message = `Hey ${order.customerName.split(' ')[0]}! We noticed you were interested in ${itemName} but didn't complete your order. Is there anything I can help you with? 😊`;
-                        } else if (order.createdAt <= oneDayAgo) {
-                            message = `Hi ${order.customerName.split(' ')[0]}! Just checking in about your interest in ${itemName}. If you have any questions or need help with the ordering process, I'm here to assist! 🛍️`;
-                        } else if (order.createdAt <= sevenDaysAgo) {
-                            message = `Hello ${order.customerName.split(' ')[0]}! We saw you were looking at ${itemName} a while ago. If you're still interested, we'd love to help you complete your order. Let me know if you need any information! 🌟`;
+                        const firstName = customer.name?.split(' ')[0] || 'there';
+                        const itemName = item.productName;
+
+                        let message: string;
+                        if (item.followUpCount === 0) {
+                            message = `Hi ${firstName}! Just checking in about your interest in ${itemName}. If you have any questions, I'm here to help! 😊`;
+                        } else if (item.followUpCount === 1) {
+                            message = `Hi ${firstName}! Still thinking about ${itemName}? I can help with sizes, colors, or the ordering process anytime! 🛍️`;
+                        } else {
+                            message = `Hey ${firstName}! Last reminder about ${itemName} in your cart. Let me know if you'd like to proceed or if I can help find something else! ✨`;
                         }
-                        
+
                         await this.metaApi.sendMessage(
-                            integration.pageId, 
-                            order.customerId, 
-                            message, 
+                            integration.pageId,
+                            customer.platformCustomerId,
+                            message,
                             integration.pageAccessToken
                         );
 
-                        await this.prisma.order.update({
-                            where: { id: order.id },
-                            data: { abandonedFollowUpSent: true }
+                        await this.prisma.cartItem.update({
+                            where: { id: item.id },
+                            data: { followUpCount: { increment: 1 } }
                         });
                     }
                 } catch (innerError) {
-                    this.logger.error(`❌ Failed to process abandoned cart for Order ${order.id}: ${innerError.message}`);
+                    this.logger.error(`❌ Failed to process abandoned cart for Item ${item.id}: ${innerError.message}`);
                 }
             }
         } catch (error) {
-            this.logger.error(`❌ Abandoned Cart CRON failed: ${error.message}`);
+            this.logger.error(`❌ Abandoned Cart logic failed: ${error.message}`);
+            throw error;
         }
     }
 
-    // 2. Post-Purchase Feedback Loop
-    // Runs daily to find DELIVERED orders older than 3 days.
-    @Cron(CronExpression.EVERY_DAY_AT_NOON)
+    // 2. Post-Purchase Feedback Logic
     async handlePostPurchaseFeedback() {
-        this.logger.log('📦 Running Post-Purchase Feedback CRON job...');
+        this.logger.log('📦 Running Post-Purchase Feedback Task...');
         await this.prisma.ensureConnected();
         const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
 
@@ -102,6 +133,8 @@ export class ProactiveService {
 
             for (const order of deliveredOrders) {
                 try {
+                    if ((order.customer as any).isOptedOut) continue;
+
                     this.logger.log(`🌟 Sending feedback request for Order ${order.id}`);
                     const integration = await this.prisma.metaIntegration.findUnique({
                         where: { id: order.customer.metaIntegrationId }
@@ -109,13 +142,14 @@ export class ProactiveService {
 
                     if (integration) {
                         const itemName = order.items.length > 0 ? order.items[0].productName : 'recent purchase';
-                        const message = `Hi ${order.customerName.split(' ')[0]}! Hope you are loving your ${itemName}! If you have a moment, we'd love to hear your thoughts. Let me know if everything fits perfectly or if you'd like to see some new matching arrivals! ✨`;
+                        const firstName = order.customerName.split(' ')[0];
+                        const message = `Hi ${firstName}! Hope you are loving your ${itemName}! If you have a moment, we'd love to hear your thoughts. Let me know if everything fits perfectly or if you'd like to see some new matching arrivals! ✨`;
                         
                         await this.metaApi.sendMessage(
                             integration.pageId, 
                             order.customer.platformCustomerId, 
                             message, 
-                            integration.pageAccessToken
+                            this.encryption.decrypt(integration.pageAccessToken)
                         );
 
                         await this.prisma.order.update({
@@ -128,7 +162,8 @@ export class ProactiveService {
                 }
             }
         } catch (error) {
-            this.logger.error(`❌ Post-Purchase Feedback CRON failed: ${error.message}`);
+            this.logger.error(`❌ Post-Purchase Feedback logic failed: ${error.message}`);
+            throw error;
         }
     }
 }

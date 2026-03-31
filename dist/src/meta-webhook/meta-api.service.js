@@ -33,8 +33,10 @@ let MetaApiService = MetaApiService_1 = class MetaApiService {
         };
         try {
             this.logger.log(`📤 Sending message to ${recipientId}: "${text.substring(0, 50)}..."`);
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
-            const response = await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload));
+            const url = `${this.baseUrl}/${pageId}/messages`;
+            const response = await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
             this.logger.log(`✅ Message sent successfully.`);
             return response.data;
         }
@@ -58,12 +60,14 @@ let MetaApiService = MetaApiService_1 = class MetaApiService {
     }
     async markSeen(pageId, recipientId, pageAccessToken) {
         try {
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
             const payload = {
                 recipient: { id: recipientId },
                 sender_action: 'mark_seen',
             };
-            await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload));
+            await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
         }
         catch (error) {
             this.logger.error(`Error marking as seen: ${error.message}`);
@@ -71,12 +75,14 @@ let MetaApiService = MetaApiService_1 = class MetaApiService {
     }
     async typingOn(pageId, recipientId, pageAccessToken) {
         try {
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
             const payload = {
                 recipient: { id: recipientId },
                 sender_action: 'typing_on',
             };
-            await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload));
+            await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
         }
         catch (error) {
             this.logger.error(`Error starting typing: ${error.message}`);
@@ -84,12 +90,14 @@ let MetaApiService = MetaApiService_1 = class MetaApiService {
     }
     async typingOff(pageId, recipientId, pageAccessToken) {
         try {
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
+            const url = `${this.baseUrl}/${pageId}/messages`;
             const payload = {
                 recipient: { id: recipientId },
                 sender_action: 'typing_off',
             };
-            await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload));
+            await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
         }
         catch (error) {
             this.logger.error(`Error stopping typing: ${error.message}`);
@@ -111,8 +119,10 @@ let MetaApiService = MetaApiService_1 = class MetaApiService {
         };
         try {
             this.logger.log(`📤 Sending image to ${recipientId}: ${imageUrl}`);
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
-            const response = await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload));
+            const url = `${this.baseUrl}/${pageId}/messages`;
+            const response = await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
             this.logger.log(`✅ Image sent successfully.`);
             this.logToFile(`SUCCESS: Image sent to ${recipientId}. URL: ${imageUrl}`);
             return response.data;
@@ -127,32 +137,59 @@ let MetaApiService = MetaApiService_1 = class MetaApiService {
     async sendBatchImages(pageId, recipientId, imageUrls, pageAccessToken) {
         if (!imageUrls || imageUrls.length === 0)
             return;
+        if (imageUrls.length === 1) {
+            return this.sendImage(pageId, recipientId, imageUrls[0], pageAccessToken);
+        }
         const payload = {
             recipient: { id: recipientId },
             messaging_type: 'RESPONSE',
             message: {
-                attachments: imageUrls.map(url => ({
-                    type: 'image',
+                attachment: {
+                    type: 'template',
                     payload: {
-                        url: url,
-                        is_reusable: true
+                        template_type: 'generic',
+                        elements: imageUrls.slice(0, 10).map((url, index) => ({
+                            title: `Product Image ${index + 1}`,
+                            image_url: url,
+                            subtitle: 'Explore our collection',
+                            default_action: {
+                                type: "web_url",
+                                url: "https://frooxi.com",
+                                webview_height_ratio: "tall",
+                            },
+                            buttons: [
+                                {
+                                    type: "web_url",
+                                    url: "https://frooxi.com",
+                                    title: "View on Store"
+                                },
+                                {
+                                    type: "web_url",
+                                    url: url,
+                                    title: "View Full Image"
+                                }
+                            ]
+                        }))
                     }
-                }))
+                }
             }
         };
         try {
-            this.logger.log(`📤 Sending ${imageUrls.length} images in batch to ${recipientId}`);
-            const url = `${this.baseUrl}/${pageId}/messages?access_token=${pageAccessToken}`;
-            const response = await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload));
-            this.logger.log(`✅ Batch images sent successfully.`);
-            this.logToFile(`SUCCESS: Batch images sent to ${recipientId}. Count: ${imageUrls.length}`);
+            this.logger.log(`📤 Sending ${imageUrls.length} images in a Carousel to ${recipientId}`);
+            const url = `${this.baseUrl}/${pageId}/messages`;
+            const response = await (0, rxjs_1.lastValueFrom)(this.httpService.post(url, payload, {
+                headers: { 'Authorization': `Bearer ${pageAccessToken}` }
+            }));
+            this.logger.log(`✅ Carousel images sent successfully.`);
             return response.data;
         }
         catch (error) {
             const errorMsg = error.response?.data?.error?.message || error.message;
-            this.logger.error(`❌ Error sending batch images to Meta: ${errorMsg}`);
-            this.logToFile(`ERROR: Batch images to ${recipientId} failed. Error: ${errorMsg}`);
-            throw error;
+            this.logger.error(`❌ Error sending Carousel images: ${errorMsg}`);
+            this.logger.warn(`⚠️ Carousel failed, falling back to sequential sending...`);
+            for (const url of imageUrls) {
+                await this.sendImage(pageId, recipientId, url, pageAccessToken).catch(() => { });
+            }
         }
     }
     async getWhatsAppMediaUrl(mediaId, accessToken) {

@@ -18,8 +18,8 @@ export declare class AppController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            customerId: string | null;
             metaIntegrationId: string;
+            customerId: string | null;
             platform: import(".prisma/client").$Enums.Platform;
         };
     } & {
@@ -32,30 +32,32 @@ export declare class AppController {
     })[]>;
     getNotifications(): Promise<({
         customer: {
+            name: string | null;
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string | null;
             metaIntegrationId: string;
             platformCustomerId: string;
             preferences: string | null;
             notes: string | null;
+            lastReadAt: Date | null;
+            isOptedOut: boolean;
         };
     } & {
+        message: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         customerId: string;
-        message: string;
         type: string;
         read: boolean;
     })[]>;
     markNotificationRead(id: string): Promise<{
+        message: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         customerId: string;
-        message: string;
         type: string;
         read: boolean;
     }>;
